@@ -49,7 +49,7 @@ public class MiniSpring extends HttpServlet {
             throws ServletException, IOException {
 //        response.setContentType("text/html;charset=UTF-8");
         String controllersPackageName = this.getServletConfig().getInitParameter("controllers-package");
-        String path = getServletContext().getRealPath("/WEB-INF/classes/controller");
+        String path = getServletContext().getRealPath("/WEB-INF/classes/" + controllersPackageName.replace('.', '/'));
         File file = new File(path);
         if (!file.exists()) {
             System.out.println("folder not found");
