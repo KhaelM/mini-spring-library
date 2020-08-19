@@ -28,6 +28,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import core.Json;
+import javax.servlet.http.HttpSession;
 import utils.Mapper;
 
 /**
@@ -161,6 +162,13 @@ public class MiniSpring extends HttpServlet {
                                     String key = entry.getKey();
                                     Object value = entry.getValue();
                                     request.setAttribute(key, value);
+                                }
+                                
+                                HttpSession session = request.getSession();
+                                for (Map.Entry<String, Object> entry : model.getSessionAttributes().entrySet()) {
+                                    String key = entry.getKey();
+                                    Object value = entry.getValue();
+                                    session.setAttribute(key, value);
                                 }
 
                                 System.out.println("method found: " + controllerMethod.getName());

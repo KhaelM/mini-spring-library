@@ -13,6 +13,15 @@ import java.util.HashMap;
  */
 public class Model {
     HashMap<String, Object> attributes = new HashMap<String,Object>();
+    HashMap<String, Object> sessionAttributes = new HashMap<String, Object>();
+    
+    public void addToSession(String key, Object value) {
+        sessionAttributes.put(key, value);
+    }
+
+    public HashMap<String, Object> getSessionAttributes() {
+        return sessionAttributes;
+    }
     
     public void addAttribute(String key, Object value) {
         attributes.put(key, value);
