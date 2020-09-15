@@ -18,13 +18,17 @@ import javax.servlet.http.HttpServletRequest;
  */
 public class Mapper {
 
-    public static Object mapRequestToObject(HttpServletRequest request, Class objectClass) throws InstantiationException, IllegalAccessException, NoSuchFieldException, ParseException {
+    public static Object mapRequestToObject(HttpServletRequest request, Class objectClass) throws InstantiationException, IllegalAccessException, ParseException {
         Enumeration<String> paramNames = request.getParameterNames();
         Object instance = objectClass.newInstance();
         Field field;
         while (paramNames.hasMoreElements()) {
             String paramName = paramNames.nextElement();
-            field = objectClass.getDeclaredField(paramName);
+            try {
+                field = objectClass.getDeclaredField(paramName);
+            } catch(NoSuchFieldException e) {
+                continue;
+            }
             System.out.println(field.getType());
             field.setAccessible(true);
             if (!request.getParameter(paramName).isEmpty()) {

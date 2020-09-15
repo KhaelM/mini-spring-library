@@ -7,6 +7,7 @@ package servlet;
 
 import annotation.Controller;
 import annotation.Folder;
+import annotation.PathVariable;
 import core.Model;
 import java.io.File;
 import java.io.IOException;
@@ -28,6 +29,11 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import core.Json;
+import java.lang.annotation.Annotation;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.HashMap;
 import javax.servlet.http.HttpSession;
 import utils.Mapper;
 
@@ -41,21 +47,21 @@ public class MiniSpring extends HttpServlet {
      * Processes requests for both HTTP <code>GET</code> and <code>POST</code>
      * methods.
      *
-     * @param request servlet request
+     * @param request  servlet request
      * @param response servlet response
      * @throws ServletException if a servlet-specific error occurs
-     * @throws IOException if an I/O error occurs
+     * @throws IOException      if an I/O error occurs
      */
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-//        response.setContentType("text/html;charset=UTF-8");
+        // response.setContentType("text/html;charset=UTF-8");
         String controllersPackageName = this.getServletConfig().getInitParameter("controllers-package");
         String path = getServletContext().getRealPath("/WEB-INF/classes/" + controllersPackageName.replace('.', '/'));
         File file = new File(path);
         if (!file.exists()) {
             System.out.println("folder not found");
         } else {
-            System.out.println("folder found :)");
+            // System.out.println("folder found :)");
         }
 
         String fullUrl = (String) request.getAttribute("fullUrl");
@@ -73,8 +79,8 @@ public class MiniSpring extends HttpServlet {
         Object controllerInstance = null;
         try (Stream<Path> walk = Files.walk(Paths.get(path))) {
 
-            List<String> result = walk.map(x -> x.toString())
-                    .filter(f -> f.endsWith(".class")).collect(Collectors.toList());
+            List<String> result = walk.map(x -> x.toString()).filter(f -> f.endsWith(".class"))
+                    .collect(Collectors.toList());
 
             for (String res : result) {
                 packageUnsplitted = res.split(controllersPackageName);
@@ -93,77 +99,127 @@ public class MiniSpring extends HttpServlet {
                     if (!controllerClass.isAnnotationPresent(Controller.class)) {
                         continue;
                     }
-                    System.out.println("controller found: " + controllerClass.getSimpleName());
+                    // System.out.println("controller found: " + controllerClass.getSimpleName());
                     try {
                         controllerInstance = controllerClass.newInstance();
                     } catch (InstantiationException | IllegalAccessException ex) {
                         Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
                     }
                     controllerPath = ((Controller) controllerClass.getAnnotation(Controller.class)).path();
-                    if (!(urlWithoutContext.contains(controllerPath) && urlWithoutContext.indexOf(controllerPath) == 0)) {
+                    if (!(urlWithoutContext.contains(controllerPath)
+                            && urlWithoutContext.indexOf(controllerPath) == 0)) {
                         continue;
                     }
+
                     methodUrlPath = (urlWithoutContext.split(controllerPath)[1]).split("[.]")[0];
+
                     controllerMethods = controllerClass.getMethods();
                     for (Method controllerMethod : controllerMethods) {
                         if (!controllerMethod.isAnnotationPresent(annotation.Path.class)) {
                             continue;
                         }
                         methodPath = ((annotation.Path) controllerMethod.getAnnotation(annotation.Path.class)).name();
-                        if (!methodUrlPath.equals(methodPath)) {
+                        String[] urlMethPathSplitted = methodUrlPath.split("/");
+                        String[] methPathSplitted = methodPath.split("/");
+
+                        if (urlMethPathSplitted.length != methPathSplitted.length) {
                             continue;
                         }
 
-                        boolean hasMappingObject = false;
-                        boolean hasModel = false;
-                        Object mappingObject = null;
-                        Class[] parametersClasses = controllerMethod.getParameterTypes();
+                        // Check http verbs
+                        String method = request.getMethod();
+                        List<String> methodsSupported = new ArrayList<String>(Arrays.asList(
+                                ((annotation.Path) controllerMethod.getAnnotation(annotation.Path.class)).httpVerbs()));
+                        if (!methodsSupported.contains(method)) {
+                            continue;
+                        }
+
+                        boolean correctController = true;
+                        Map<String, String> paramNamesValues = new HashMap<String, String>();
+                        for (int i = 0; i < methPathSplitted.length; i++) {
+                            if (methPathSplitted[i].isEmpty()) {
+                                continue;
+                            }
+                            if (methPathSplitted[i].charAt(0) != '{'
+                                    && !methPathSplitted[i].equals(urlMethPathSplitted[i])) {
+                                correctController = false;
+                                break;
+                            } else {
+                                // Removing { and }
+                                paramNamesValues.put(methPathSplitted[i].substring(1, methPathSplitted[i].length() - 1),
+                                        urlMethPathSplitted[i]);
+                            }
+                        }
+
+                        if (!correctController) {
+                            continue;
+                        }
+
+                        final Annotation[][] paramAnnotations = controllerMethod.getParameterAnnotations();
+                        final Class<?>[] paramTypes = controllerMethod.getParameterTypes();
+                        List<Object> arguments = new ArrayList<Object>();
+
+                        // Copy session attributes to Model to can read them inside controller method
+                        Model model = new Model();
+                        Enumeration<String> sessionAttributes = request.getSession().getAttributeNames();
+                        while (sessionAttributes.hasMoreElements()) {
+                            String attribute = (String) sessionAttributes.nextElement();
+                            model.addToSession(attribute, request.getSession().getAttribute(attribute));
+                        }
+
+                        // Set RequestParam
+                        model.setRequest(request);
+                        System.out.println(controllerMethod);
                         try {
-                            if (parametersClasses.length != 0) {
-                                for (int i = 0; i < parametersClasses.length; i++) {
-                                    if (!parametersClasses[i].equals(Model.class)) {
-                                        mappingObject = Mapper.mapRequestToObject(request, parametersClasses[i]);
-                                        hasMappingObject = true;
+                            if (paramTypes.length != 0) {
+                                if (!paramTypes[0].equals(Model.class) && !paramTypes[0].equals(int.class)
+                                        && !paramTypes[0].equals(Integer.class)) {
+
+                                }
+                            }
+
+                            for (int i = 0; i < paramTypes.length; i++) {
+                                if (paramAnnotations[i].length == 0) {
+                                    if (paramTypes[i].equals(Model.class)) {
+                                        arguments.add(model);
                                     } else {
-                                        hasModel = true;
+                                        arguments.add(Mapper.mapRequestToObject(request, paramTypes[0]));
+                                    }
+                                } else {
+                                    if (paramAnnotations[i][0] instanceof PathVariable) {
+                                        String paramName = ((PathVariable) paramAnnotations[i][0]).name();
+                                        if (paramTypes[i].equals(int.class) || paramTypes[i].equals(Integer.class)) {
+                                            arguments.add(Integer.parseInt(paramNamesValues.get(paramName)));
+                                        } else if (paramTypes[i].equals(String.class)) {
+                                            arguments.add(paramNamesValues.get(paramName));
+                                        } else if (paramTypes[i].equals(float.class)
+                                                || paramTypes[i].equals(Float.class)) {
+                                            arguments.add(Float.parseFloat(paramNamesValues.get(paramName)));
+                                        } else if (paramTypes[i].equals(double.class)
+                                                || paramTypes[i].equals(Double.class)) {
+                                            arguments.add(Double.parseDouble(paramNamesValues.get(paramName)));
+                                        }
                                     }
                                 }
                             }
-                        } catch (InstantiationException ex) {
+                        } catch (InstantiationException | IllegalAccessException | ParseException ex) {
                             Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
-                        } catch (IllegalAccessException ex) {
-                            Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
-                        } catch (NoSuchFieldException ex) {
-                            Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
-                        } catch (ParseException ex) {
-                            Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
+                        } catch (NumberFormatException ex) {
+                            System.out.println("NumberFormatException inside method Controller " + controllerMethod);
+                            continue;
                         }
 
-                        Model model = new Model();
                         if (controllerMethod.getReturnType().equals(String.class)) {
-                            System.out.println("String le return");
                             try {
-                                String view = "";
-                                if (hasMappingObject) {
-                                    if (hasModel) {
-                                        view = (String) controllerMethod.invoke(controllerInstance, mappingObject, model);
-                                    } else {
-                                        view = (String) controllerMethod.invoke(controllerInstance, mappingObject);
-                                    }
-                                } else {
-                                    if (hasModel) {
-                                        view = (String) controllerMethod.invoke(controllerInstance, model);
-                                    } else {
-                                        view = (String) controllerMethod.invoke(controllerInstance);
-                                    }
-                                }
+                                String view = (String) controllerMethod.invoke(controllerInstance, arguments.toArray());
 
                                 for (Map.Entry<String, Object> entry : model.getAttributes().entrySet()) {
                                     String key = entry.getKey();
                                     Object value = entry.getValue();
                                     request.setAttribute(key, value);
                                 }
-                                
+
+                                // Add attributes to session
                                 HttpSession session = request.getSession();
                                 for (Map.Entry<String, Object> entry : model.getSessionAttributes().entrySet()) {
                                     String key = entry.getKey();
@@ -171,14 +227,20 @@ public class MiniSpring extends HttpServlet {
                                     session.setAttribute(key, value);
                                 }
 
-                                System.out.println("method found: " + controllerMethod.getName());
-                                System.out.println(view);
+                                // Delete attributes in session
+                                for (String attr : model.getSessionAttributesToRemove()) {
+                                    session.removeAttribute(attr);
+                                }
+
+                                // System.out.println("method found: " + controllerMethod.getName());
+                                // System.out.println(view);
                                 String folder = "/WEB-INF/";
                                 if (controllerMethod.isAnnotationPresent(Folder.class)) {
                                     folder += ((Folder) controllerMethod.getAnnotation(Folder.class)).path() + "/";
                                 }
-                                System.out.println("folder:" + folder);
-                                getServletContext().getRequestDispatcher(folder + view + ".jsp").forward(request, response);
+                                // System.out.println("folder:" + folder);
+                                getServletContext().getRequestDispatcher(folder + view + ".jsp").forward(request,
+                                        response);
                             } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
                                 Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
                             }
@@ -187,18 +249,10 @@ public class MiniSpring extends HttpServlet {
                             response.setContentType("application/json");
                             response.setCharacterEncoding("UTF-8");
                             Json json = null;
-                            if(hasMappingObject) {
-                                try {
-                                    json = (Json) controllerMethod.invoke(controllerInstance, mappingObject);
-                                } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
-                                    Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
-                                }
-                            } else {
-                                try {
-                                    json = (Json) controllerMethod.invoke(controllerInstance);
-                                } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
-                                    Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
-                                }
+                            try {
+                                json = (Json) controllerMethod.invoke(controllerInstance, arguments.toArray());
+                            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
+                                Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
                             }
                             out.print(json.printJson());
                             out.flush();
@@ -214,14 +268,15 @@ public class MiniSpring extends HttpServlet {
         }
     }
 
-// <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the + sign on the left to edit the code.">
+    // <editor-fold defaultstate="collapsed" desc="HttpServlet methods. Click on the
+    // + sign on the left to edit the code.">
     /**
      * Handles the HTTP <code>GET</code> method.
      *
-     * @param request servlet request
+     * @param request  servlet request
      * @param response servlet response
      * @throws ServletException if a servlet-specific error occurs
-     * @throws IOException if an I/O error occurs
+     * @throws IOException      if an I/O error occurs
      */
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
@@ -232,10 +287,10 @@ public class MiniSpring extends HttpServlet {
     /**
      * Handles the HTTP <code>POST</code> method.
      *
-     * @param request servlet request
+     * @param request  servlet request
      * @param response servlet response
      * @throws ServletException if a servlet-specific error occurs
-     * @throws IOException if an I/O error occurs
+     * @throws IOException      if an I/O error occurs
      */
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
