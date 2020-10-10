@@ -59,9 +59,7 @@ public class MiniSpring extends HttpServlet {
         String path = getServletContext().getRealPath("/WEB-INF/classes/" + controllersPackageName.replace('.', '/'));
         File file = new File(path);
         if (!file.exists()) {
-            System.out.println("folder not found");
-        } else {
-            // System.out.println("folder found :)");
+            throw new RuntimeException("Le dossier contenant les controlleurs n'a pas été trouvé.");
         }
 
         String fullUrl = (String) request.getAttribute("fullUrl");
