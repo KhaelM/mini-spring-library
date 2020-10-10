@@ -55,8 +55,12 @@ public class MiniSpring extends HttpServlet {
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         // response.setContentType("text/html;charset=UTF-8");
+        
+        // On cherche le dossier contenant les controlleurs
+        // On lit le fichier web.xml
         String controllersPackageName = this.getServletConfig().getInitParameter("controllers-package");
         String path = getServletContext().getRealPath("/WEB-INF/classes/" + controllersPackageName.replace('.', '/'));
+        System.out.println("path = " + path);
         File file = new File(path);
         if (!file.exists()) {
             throw new RuntimeException("Le dossier contenant les controlleurs n'a pas été trouvé.");
@@ -65,7 +69,9 @@ public class MiniSpring extends HttpServlet {
         String fullUrl = (String) request.getAttribute("fullUrl");
         request.removeAttribute("fullUrl");
         String[] splittedByContext = fullUrl.split(request.getContextPath());
+        System.out.println("fullUrl = " + fullUrl);
         String urlWithoutContext = splittedByContext[1];
+        System.out.println("urlWithoutContext = " + urlWithoutContext);
         Class controllerClass;
         String[] packageUnsplitted;
         String[] packageSpittedByAntiSlash;
@@ -75,13 +81,18 @@ public class MiniSpring extends HttpServlet {
         String methodPath;
         Method[] controllerMethods;
         Object controllerInstance = null;
+        
+        // Charge tous les fichiers qui sont dans le dossier du controlleur
         try (Stream<Path> walk = Files.walk(Paths.get(path))) {
 
+            // Garder uniquement les fichier de type class
             List<String> result = walk.map(x -> x.toString()).filter(f -> f.endsWith(".class"))
                     .collect(Collectors.toList());
 
             for (String res : result) {
+                // res est quelque chose du style: /WEB-INF/classes/{controllersPackageName}/NomClasse.class
                 packageUnsplitted = res.split(controllersPackageName);
+                // Sous Windows '\\\\' et sous Linux ou MacOS '/'.
                 packageSpittedByAntiSlash = packageUnsplitted[1].split("\\\\");
                 fullClassName = controllersPackageName + ".";
                 for (int i = 1; i < packageSpittedByAntiSlash.length; i++) {
@@ -93,6 +104,7 @@ public class MiniSpring extends HttpServlet {
                 }
 
                 try {
+                    System.out.println("fullClassName = " + fullClassName);
                     controllerClass = Class.forName(fullClassName);
                     if (!controllerClass.isAnnotationPresent(Controller.class)) {
                         continue;
@@ -102,14 +114,17 @@ public class MiniSpring extends HttpServlet {
                         controllerInstance = controllerClass.newInstance();
                     } catch (InstantiationException | IllegalAccessException ex) {
                         Logger.getLogger(MiniSpring.class.getName()).log(Level.SEVERE, null, ex);
+                        throw new RuntimeException("Erreur lors de l'instanciantion du controlleur " + controllerClass);
                     }
                     controllerPath = ((Controller) controllerClass.getAnnotation(Controller.class)).path();
+                    System.out.println("controllerPath = " + controllerPath);
                     if (!(urlWithoutContext.contains(controllerPath)
                             && urlWithoutContext.indexOf(controllerPath) == 0)) {
                         continue;
                     }
 
                     methodUrlPath = (urlWithoutContext.split(controllerPath)[1]).split("[.]")[0];
+                    System.out.println("methodUrlPath = " + methodUrlPath);
 
                     controllerMethods = controllerClass.getMethods();
                     for (Method controllerMethod : controllerMethods) {
@@ -125,6 +140,8 @@ public class MiniSpring extends HttpServlet {
                         }
 
                         // Check http verbs
+                        // On vérifie si le verbe HTTP de la requete actuelle
+                        // est contenu dans la liste des verbes HTTP de l'actuelle méthode
                         String method = request.getMethod();
                         List<String> methodsSupported = new ArrayList<String>(Arrays.asList(
                                 ((annotation.Path) controllerMethod.getAnnotation(annotation.Path.class)).httpVerbs()));
@@ -135,7 +152,7 @@ public class MiniSpring extends HttpServlet {
                         boolean correctController = true;
                         Map<String, String> paramNamesValues = new HashMap<String, String>();
                         for (int i = 0; i < methPathSplitted.length; i++) {
-                            if (methPathSplitted[i].isEmpty()) {
+                            if (methPathSplitted[i].isEmpty() && urlMethPathSplitted[i].isEmpty()) {
                                 continue;
                             }
                             if (methPathSplitted[i].charAt(0) != '{'
@@ -169,14 +186,8 @@ public class MiniSpring extends HttpServlet {
                         model.setRequest(request);
                         System.out.println(controllerMethod);
                         try {
-                            if (paramTypes.length != 0) {
-                                if (!paramTypes[0].equals(Model.class) && !paramTypes[0].equals(int.class)
-                                        && !paramTypes[0].equals(Integer.class)) {
-
-                                }
-                            }
-
                             for (int i = 0; i < paramTypes.length; i++) {
+                                // Si le type actuel ne possède pas d'annotations
                                 if (paramAnnotations[i].length == 0) {
                                     if (paramTypes[i].equals(Model.class)) {
                                         arguments.add(model);
@@ -211,13 +222,14 @@ public class MiniSpring extends HttpServlet {
                             try {
                                 String view = (String) controllerMethod.invoke(controllerInstance, arguments.toArray());
 
+                                // Copie les attributs du modèle indiqués par le programmeur dans le scope request
                                 for (Map.Entry<String, Object> entry : model.getAttributes().entrySet()) {
                                     String key = entry.getKey();
                                     Object value = entry.getValue();
                                     request.setAttribute(key, value);
                                 }
 
-                                // Add attributes to session
+                                // Copie les attributs du modèle indiqués par le programmeur dans le scope session
                                 HttpSession session = request.getSession();
                                 for (Map.Entry<String, Object> entry : model.getSessionAttributes().entrySet()) {
                                     String key = entry.getKey();
